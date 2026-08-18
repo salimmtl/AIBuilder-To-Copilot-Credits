@@ -1,0 +1,35 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Local working files, not part of this tool.
+# The HTML analyzers and PowerShell scanners are kept outside this repository now —
+# these entries stop them being committed back in by accident.
+*.docx
+*.png
+!tool-logo.png
+ai-builder-activity-analyzer.html
+ai-builder-vs-copilot-credits.html
+Export-AIBuilderActivity.ps1
+Invoke-AIBuilderTenantScan.ps1
+template-minimal-monthly.csv
+build-real-fixture.js
+sample-real-activity.json
+
+# Output of a live tenant scan. Contains real environment and model names.
+demo-tenant-activity.json
+tenant-ai-builder-activity.json
+ai-builder-activity-*.json
+ai-builder-activity-*.csv
+
+# Local editor/OS noise
+.DS_Store
+Thumbs.db
+.vscode/
+
+# Vendored copy of PowerPlatformToolBox/pptb-agent-skills (GPL-3.0). A local
+# development aid, not part of this MIT-licensed tool — re-clone it when needed
+# rather than redistributing it here under a different licence.
+.github/skills/

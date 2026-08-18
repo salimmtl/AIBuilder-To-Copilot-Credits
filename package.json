@@ -1,0 +1,70 @@
+{
+    "name": "pptb-ai-builder-credit-analyzer",
+    "version": "0.1.0",
+    "displayName": "AI Builder Credit Analyzer",
+    "description": "Scan AI Builder activity in Dataverse and estimate the equivalent consumption in Copilot Credits, with a per-tool breakdown and a tenant-wide roll-up.",
+    "main": "index.html",
+    "icon": "icons/tool.svg",
+    "author": "Salim Adamon",
+    "license": "MIT",
+    "contributors": [
+        { "name": "Salim Adamon" }
+    ],
+    "configurations": {
+        "repository": "https://github.com/salimmtl/AIBuilder-To-Copilot-Credits",
+        "website": "https://github.com/salimmtl/AIBuilder-To-Copilot-Credits",
+        "readmeUrl": "https://raw.githubusercontent.com/salimmtl/AIBuilder-To-Copilot-Credits/main/README.md"
+    },
+    "keywords": [
+        "dataverse",
+        "power-platform",
+        "ai-builder",
+        "copilot-credits",
+        "licensing",
+        "pptb-tool"
+    ],
+    "homepage": "https://github.com/salimmtl/AIBuilder-To-Copilot-Credits",
+    "bugs": {
+        "url": "https://github.com/salimmtl/AIBuilder-To-Copilot-Credits/issues"
+    },
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/salimmtl/AIBuilder-To-Copilot-Credits.git"
+    },
+    "features": {
+        "multiConnection": "none",
+        "minAPI": "1.2.0"
+    },
+    "publishConfig": {
+        "registry": "https://registry.npmjs.org/",
+        "access": "public"
+    },
+    "engines": {
+        "node": ">=18.0.0"
+    },
+    "scripts": {
+        "build": "tsc && vite build",
+        "dev": "vite",
+        "watch": "vite build --watch",
+        "dev-watch": "vite build --mode development --watch",
+        "preview": "vite preview",
+        "finalize-package": "npm shrinkwrap",
+        "validate": "pptb-validate",
+        "build-fixture": "node test/build-fixture.js",
+        "verify-engine": "node test/verify-engine.mjs",
+        "test": "node test/verify-engine.mjs",
+        "version-stable": "npm version patch --no-git-tag-version",
+        "publish-package": "npm run build && npm run version-stable && npm publish --access public"
+    },
+    "devDependencies": {
+        "@pptb/types": "^1.2.0",
+        "typescript": "^5.0.0",
+        "vite": "^8.0.3"
+    },
+    "files": [
+        "dist",
+        "npm-shrinkwrap.json",
+        "README.md",
+        "LICENSE"
+    ]
+}

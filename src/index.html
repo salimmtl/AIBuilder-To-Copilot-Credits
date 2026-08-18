@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Builder Credit Analyzer</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>AI Builder Credit Analyzer</h1>
+            <p class="subtitle">
+                Reads AI Builder activity from the connected Dataverse environment and estimates
+                the equivalent consumption in Copilot Credits.
+            </p>
+        </header>
+
+        <div class="callout callout-info">
+            <strong>Scan every environment.</strong>
+            Power Platform ToolBox connects to one environment at a time, so this reads only the
+            environment currently connected. To see your whole tenant, switch the connection and
+            scan again — results accumulate below until you clear them.
+        </div>
+
+        <div class="callout callout-warn">
+            <strong>Estimate, not a bill.</strong>
+            Each run is matched to an AI Builder capability from its model template, language model,
+            tool name or data type, and converted at that capability's published rate. That matching
+            is a best effort and will not be right every time — prompt tiers in particular are
+            inferred from the language model and can be wrong. Treat the result as a directional
+            estimate of equivalent Copilot Credit consumption, not a guaranteed figure. Every run
+            carries a confidence rating, and anything that cannot be identified is reported rather
+            than silently costed.
+        </div>
+
+        <section class="card">
+            <div class="row-between">
+                <h2>Connected environment</h2>
+                <span id="conn-badge" class="badge badge-muted">Checking…</span>
+            </div>
+            <div id="connection-info" class="info-box">
+                <div class="loading">Checking connection…</div>
+            </div>
+
+            <div class="controls">
+                <div class="input-group">
+                    <label for="days">History window</label>
+                    <select id="days">
+                        <option value="30">Last 30 days</option>
+                        <option value="90" selected>Last 90 days</option>
+                        <option value="180">Last 180 days</option>
+                        <option value="365">Last 365 days</option>
+                        <option value="730">Last 2 years</option>
+                    </select>
+                </div>
+                <div class="input-group check">
+                    <input type="checkbox" id="exclude-qt" checked>
+                    <label for="exclude-qt">Exclude quick tests (they consume 0 credits)</label>
+                </div>
+                <button id="scan-btn" class="btn btn-primary">Scan this environment</button>
+            </div>
+
+            <div id="scan-status" class="status hide"></div>
+        </section>
+
+        <section id="results-card" class="card hide">
+            <div class="row-between">
+                <h2>Results</h2>
+                <button id="clear-btn" class="btn btn-secondary btn-sm">Clear all scans</button>
+            </div>
+
+            <div id="env-coverage" class="coverage"></div>
+
+            <div class="tabs" role="tablist">
+                <button class="tab active" data-tab="summary" role="tab">Summary</button>
+                <button class="tab" data-tab="tools" role="tab">By tool</button>
+                <button class="tab" data-tab="events" role="tab">Events</button>
+            </div>
+
+            <div id="panel-summary" class="panel">
+                <div id="rollup-totals" class="totals"></div>
+                <div id="confidence"></div>
+                <div id="by-environment"></div>
+                <div id="rollup-by-capability"></div>
+                <div id="by-month"></div>
+            </div>
+
+            <div id="panel-tools" class="panel hide">
+                <p class="hint">
+                    Which tools consume the most, and the language model each one runs on. Sorted by
+                    AI Builder credits. Covers every environment you have scanned.
+                </p>
+                <div class="input-group">
+                    <label for="tool-filter">Filter by tool, model or capability</label>
+                    <input type="text" id="tool-filter" placeholder="e.g. invoice, gpt-4, prompt">
+                </div>
+                <div id="by-tool"></div>
+            </div>
+
+            <div id="panel-events" class="panel hide">
+                <p class="hint">
+                    Individual runs from the environments scanned in this session. Detail is not kept
+                    after the tool is closed — only the aggregates are. Export if you need to keep it.
+                </p>
+                <div class="input-group">
+                    <label for="event-filter">Filter by tool, model, capability or environment</label>
+                    <input type="text" id="event-filter" placeholder="e.g. receipt, gpt-4, Production">
+                </div>
+                <div id="events"></div>
+                <div class="button-group">
+                    <button id="export-json-btn" class="btn">Export runs (JSON)</button>
+                    <button id="export-csv-btn" class="btn">Export runs (CSV)</button>
+                </div>
+            </div>
+        </section>
+
+        <section class="card">
+            <h2>Conversion rates</h2>
+            <p class="hint">
+                Ratios range from 0.7x to 20x depending on capability, so the mix of capabilities —
+                not the total credit count — drives the result.
+            </p>
+            <div id="rate-table"></div>
+        </section>
+    </div>
+
+    <script type="module" src="app.ts"></script>
+</body>
+</html>
