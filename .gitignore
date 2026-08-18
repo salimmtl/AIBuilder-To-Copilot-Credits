@@ -33,3 +33,6 @@ Thumbs.db
 # development aid, not part of this MIT-licensed tool — re-clone it when needed
 # rather than redistributing it here under a different licence.
 .github/skills/
+
+# Local render harness for eyeballing the UI outside ToolBox
+.preview/

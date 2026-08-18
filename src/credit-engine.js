@@ -347,3 +347,181 @@ export function summarize(rows){
       .filter(x => x.runs > 0)
   };
 }
+
+/* ============================ trend analysis ============================ */
+
+/**
+ * @typedef {{month:string, runs:number, credits:number, cc:number}} MonthAggregate
+ * @typedef {{start:Date, end:Date}} DateRange
+ * @typedef {{period:string, runs:number, credits:number, cc:number, months:number,
+ *            start:(Date|null), end:(Date|null), complete:boolean}} PeriodAggregate
+ * @typedef {{period:string, runs:number, credits:number, cc:number, months:number,
+ *            start:(Date|null), end:(Date|null), complete:boolean,
+ *            changePct:(number|null), score:(number|null),
+ *            flag:('spike'|'dip'|null)}} ScoredPeriod
+ */
+
+/* '2026-05' -> '2026-Q2'
+ * @param {string} month
+ * @returns {string}
+ */
+export function monthToQuarter(month){
+  const [y, m] = String(month).split('-').map(Number);
+  return `${y}-Q${Math.floor((m - 1) / 3) + 1}`;
+}
+
+/* Calendar bounds of a period key, used to decide whether the scan window
+   actually covered the whole period. End is the last millisecond of the period. */
+export function periodRange(key){
+  const s = String(key);
+  const q = s.match(/^(\d{4})-Q([1-4])$/);
+  if(q){
+    const y = +q[1], startMonth = (+q[2] - 1) * 3;
+    return { start: new Date(y, startMonth, 1), end: new Date(y, startMonth + 3, 1, 0, 0, 0, -1) };
+  }
+  const m = s.match(/^(\d{4})-(\d{2})$/);
+  if(m){
+    const y = +m[1], mo = +m[2] - 1;
+    return { start: new Date(y, mo, 1), end: new Date(y, mo + 1, 1, 0, 0, 0, -1) };
+  }
+  return null;
+}
+
+/**
+ Roll monthly aggregates up to the requested granularity.
+
+ `coverage` is the date range the underlying scans actually cover. Periods that are
+ not entirely inside it are marked incomplete: a scan window that starts mid-month,
+ or the current month still in progress, would otherwise look like a real drop in
+ consumption. Incomplete periods are still shown, but excluded from the statistics.
+
+ @param {MonthAggregate[]} byMonth
+ @param {'month'|'quarter'} [granularity]
+ @param {DateRange|null} [coverage]
+ @returns {PeriodAggregate[]}
+*/
+export function bucketPeriods(byMonth, granularity = 'month', coverage = null){
+  const out = new Map();
+
+  for(const m of byMonth){
+    const key = granularity === 'quarter' ? monthToQuarter(m.month) : m.month;
+    const cur = out.get(key) || { period: key, runs: 0, credits: 0, cc: 0, months: 0 };
+    cur.runs += m.runs; cur.credits += m.credits; cur.cc += m.cc; cur.months += 1;
+    out.set(key, cur);
+  }
+
+  return [...out.values()]
+    .sort((a, b) => a.period.localeCompare(b.period))
+    .map(p => {
+      const range = periodRange(p.period);
+      let complete = true;
+      if(coverage && range){
+        complete = range.start.getTime() >= coverage.start.getTime()
+                && range.end.getTime()   <= coverage.end.getTime();
+      }
+      return { ...p, start: range ? range.start : null, end: range ? range.end : null, complete };
+    });
+}
+
+const median = arr => {
+  if(!arr.length) return 0;
+  const s = [...arr].sort((a, b) => a - b);
+  const mid = Math.floor(s.length / 2);
+  return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
+};
+
+/**
+ Describe a series of periods: period-over-period change, and which periods stand out.
+
+ Spikes are found with a median/MAD robust score rather than a mean and standard
+ deviation. Consumption series are small and often contain one huge month, which would
+ drag a mean-based threshold up far enough to hide the very spike being looked for.
+
+ Only complete periods count towards the statistics, and nothing is flagged below
+ `minPeriods` complete periods — with two or three data points "unusual" is not a
+ meaningful claim.
+
+ @param {Array<{period:string, runs:number, credits:number, cc:number, complete?:boolean,
+ *               months?:number, start?:(Date|null), end?:(Date|null)}>} periods
+ @param {{metric?:string, threshold?:number, minPeriods?:number, minRelative?:number}} [opts]
+ @returns {{metric:string, periods:ScoredPeriod[], completeCount:number,
+ *          incompleteCount:number, enough:boolean, median:number, mean:number,
+ *          peak:(ScoredPeriod|null), direction:string, changeAcross:(number|null),
+ *          spikes:ScoredPeriod[], dips:ScoredPeriod[]}}
+*/
+export function analyzeTrend(periods, opts = {}){
+  const metric = opts.metric || 'cc';
+  const threshold = opts.threshold ?? 2;
+  const minPeriods = opts.minPeriods ?? 4;
+  /* A period must also differ from the typical level by this much before it is
+     called unusual. On a very steady series the MAD collapses towards zero, and a
+     score alone would flag a period only a few percent above normal — technically
+     an outlier, but not something worth telling anyone about. */
+  const minRelative = opts.minRelative ?? 0.25;
+
+  const complete = periods.filter(p => p.complete);
+  const values = complete.map(p => p[metric]);
+  const med = median(values);
+  const mad = median(values.map(v => Math.abs(v - med)));
+  /* 1.4826 rescales MAD so the score is comparable to a standard deviation. */
+  const scale = mad * 1.4826;
+  const enough = complete.length >= minPeriods;
+
+  const scored = periods.map((p, i) => {
+    const prev = i > 0 ? periods[i - 1] : null;
+    const changePct = prev && prev[metric] > 0
+      ? ((p[metric] - prev[metric]) / prev[metric]) * 100
+      : null;
+
+    let score = null, flag = null;
+    if(enough && p.complete){
+      const hi = med * (1 + minRelative);
+      const lo = med * (1 - minRelative);
+      if(scale > 0){
+        score = (p[metric] - med) / scale;
+        if(score >= threshold && p[metric] >= hi) flag = 'spike';
+        else if(score <= -threshold && p[metric] <= lo) flag = 'dip';
+      } else if(med > 0){
+        /* Every complete period identical apart from this one. */
+        if(p[metric] >= med * 1.5) flag = 'spike';
+        else if(p[metric] <= med * 0.5) flag = 'dip';
+      }
+    }
+    return { ...p, changePct, score, flag };
+  });
+
+  const peak = complete.reduce((a, b) => (b[metric] > (a ? a[metric] : -1) ? b : a), null);
+  const total = values.reduce((s, v) => s + v, 0);
+  const mean = complete.length ? total / complete.length : 0;
+
+  /* Direction from the two halves of the complete series, compared on medians
+     rather than means. A single large spike would drag a mean-based comparison up
+     and report growth that is not there — the spike is reported separately. */
+  let direction = 'flat', changeAcross = null;
+  if(complete.length >= 4){
+    const half = Math.floor(complete.length / 2);
+    const first = complete.slice(0, half).map(p => p[metric]);
+    const last = complete.slice(complete.length - half).map(p => p[metric]);
+    const m1 = median(first), m2 = median(last);
+    if(m1 > 0){
+      changeAcross = ((m2 - m1) / m1) * 100;
+      if(changeAcross >= 15) direction = 'rising';
+      else if(changeAcross <= -15) direction = 'falling';
+    }
+  }
+
+  return {
+    metric,
+    periods: scored,
+    completeCount: complete.length,
+    incompleteCount: periods.length - complete.length,
+    enough,
+    median: med,
+    mean,
+    peak,
+    direction,
+    changeAcross,
+    spikes: scored.filter(p => p.flag === 'spike'),
+    dips: scored.filter(p => p.flag === 'dip')
+  };
+}

@@ -15,6 +15,8 @@ import {
     buildRow,
     summarize,
     fromDataverseEvent,
+    bucketPeriods,
+    analyzeTrend,
     CAPS,
     CC_USD
 } from './credit-engine.js';
@@ -425,16 +427,6 @@ function renderSummary(list: EnvAggregate[]) {
 
     $('rollup-by-capability').innerHTML = capTableHtml('By capability', merged.byCapability);
 
-    const monthRows = merged.byMonth.map(m =>
-        `<tr><td>${esc(m.month)}</td><td class="num">${fmt(m.runs)}</td>` +
-        `<td class="num">${fmt(m.credits)}</td><td class="num">${fmt(m.cc, 1)}</td>` +
-        `<td class="num">$${fmt(m.cc * CC_USD, 2)}</td></tr>`).join('');
-    $('by-month').innerHTML = merged.byMonth.length
-        ? `<h3>By month</h3><div class="tblwrap"><table><thead><tr><th>Month</th><th class="num">Runs</th>` +
-          `<th class="num">AI Builder credits</th><th class="num">Copilot Credits (est.)</th>` +
-          `<th class="num">Est. cost</th></tr></thead><tbody>${monthRows}</tbody></table></div>`
-        : '';
-
     document.querySelectorAll('.remove-env').forEach(btn =>
         btn.addEventListener('click', async () => {
             const key = (btn as HTMLElement).dataset.key;
@@ -445,6 +437,202 @@ function renderSummary(list: EnvAggregate[]) {
                 renderAll();
             }
         }));
+}
+
+/* ---------------------------------------------------------------- trends */
+
+/*
+ The window every scan has in common.
+
+ Each environment is scanned over its own history window, so if one was scanned for
+ 90 days and another for a year, the early months contain only one environment and
+ would show a fake ramp-up. Statistics are therefore restricted to the overlap of
+ all scans; periods outside it are still shown, but greyed and never flagged.
+*/
+function commonCoverage(list: EnvAggregate[]): { start: Date; end: Date } | null {
+    if (!list.length) return null;
+    let start = -Infinity;
+    let end = Infinity;
+    for (const e of list) {
+        const scanned = new Date(e.scannedAt).getTime();
+        start = Math.max(start, scanned - e.days * 86400000);
+        end = Math.min(end, scanned);
+    }
+    if (!isFinite(start) || !isFinite(end) || start >= end) return null;
+    return { start: new Date(start), end: new Date(end) };
+}
+
+const METRIC_LABEL: Record<string, string> = {
+    cc: 'Copilot Credits (est.)',
+    credits: 'AI Builder credits',
+    runs: 'Runs'
+};
+
+function metricValue(p: { runs: number; credits: number; cc: number }, metric: string): number {
+    if (metric === 'credits') return p.credits;
+    if (metric === 'runs') return p.runs;
+    return p.cc;
+}
+
+/* Inline SVG bar chart. Drawn by hand so the tool stays dependency-free and needs
+   no CSP exception for an external charting library. */
+function trendChart(
+    periods: Array<{ period: string; complete: boolean; flag: string | null; runs: number; credits: number; cc: number }>,
+    metric: string
+): string {
+    if (!periods.length) return '';
+
+    const W = 720, H = 220, padL = 56, padR = 12, padT = 12, padB = 46;
+    const plotW = W - padL - padR, plotH = H - padT - padB;
+    const values = periods.map(p => metricValue(p, metric));
+    const max = Math.max(...values, 1);
+    const slot = plotW / periods.length;
+    const barW = Math.max(4, Math.min(46, slot * 0.62));
+
+    const ticks = [0, 0.25, 0.5, 0.75, 1].map(f => {
+        const v = max * f;
+        const y = padT + plotH - f * plotH;
+        return `<line x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}" class="grid" />` +
+               `<text x="${padL - 8}" y="${y + 4}" class="axis" text-anchor="end">${esc(fmt(v, v >= 100 ? 0 : 1))}</text>`;
+    }).join('');
+
+    const bars = periods.map((p, i) => {
+        const v = metricValue(p, metric);
+        const h = max > 0 ? (v / max) * plotH : 0;
+        const x = padL + i * slot + (slot - barW) / 2;
+        const y = padT + plotH - h;
+        const cls = !p.complete ? 'bar bar-partial' : p.flag === 'spike' ? 'bar bar-spike'
+            : p.flag === 'dip' ? 'bar bar-dip' : 'bar';
+        const label = `${p.period}: ${fmt(v, metric === 'runs' ? 0 : 1)}` +
+            (!p.complete ? ' (partial period)' : p.flag === 'spike' ? ' — unusually high' : p.flag === 'dip' ? ' — unusually low' : '');
+        /* Show every label when there is room, otherwise thin them out. */
+        const every = Math.ceil(periods.length / 12);
+        const tick = (i % every === 0 || i === periods.length - 1)
+            ? `<text x="${x + barW / 2}" y="${H - padB + 16}" class="axis" text-anchor="middle">${esc(p.period)}</text>`
+            : '';
+        return `<g><title>${esc(label)}</title>` +
+            `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${Math.max(h, v > 0 ? 1.5 : 0).toFixed(1)}" rx="2" class="${cls}" />` +
+            `</g>${tick}`;
+    }).join('');
+
+    return `<div class="chartwrap"><svg viewBox="0 0 ${W} ${H}" role="img" ` +
+        `aria-label="${esc(METRIC_LABEL[metric])} by period" preserveAspectRatio="xMidYMid meet">` +
+        `${ticks}<line x1="${padL}" y1="${padT + plotH}" x2="${W - padR}" y2="${padT + plotH}" class="axisline" />` +
+        `${bars}</svg></div>` +
+        `<div class="legend">` +
+        `<span><i class="swatch bar"></i>Normal</span>` +
+        `<span><i class="swatch bar-spike"></i>Unusually high</span>` +
+        `<span><i class="swatch bar-dip"></i>Unusually low</span>` +
+        `<span><i class="swatch bar-partial"></i>Partly covered — excluded from stats</span>` +
+        `</div>`;
+}
+
+function renderTrends(list: EnvAggregate[]) {
+    const merged = mergeAggregates(list);
+    const granularity = (($('granularity') as HTMLSelectElement)?.value || 'month') as 'month' | 'quarter';
+    const metric = ($('trend-metric') as HTMLSelectElement)?.value || 'cc';
+    const unit = granularity === 'quarter' ? 'quarter' : 'month';
+
+    if (!merged.byMonth.length) {
+        $('trend-coverage').innerHTML = '';
+        $('trend-headline').innerHTML = '';
+        $('trend-chart').innerHTML = '';
+        $('trend-callouts').innerHTML = '<p class="hint">No dated activity found, so there is nothing to trend.</p>';
+        $('trend-table').innerHTML = '';
+        return;
+    }
+
+    const coverage = commonCoverage(list);
+    const periods = bucketPeriods(merged.byMonth, granularity, coverage);
+    const t = analyzeTrend(periods, { metric, minPeriods: granularity === 'quarter' ? 3 : 4 });
+
+    /* Coverage note */
+    const windows = [...new Set(list.map(e => e.days))];
+    const notes: string[] = [];
+    if (coverage) {
+        notes.push(`Comparable period: <strong>${coverage.start.toLocaleDateString()}</strong> to <strong>${coverage.end.toLocaleDateString()}</strong>.`);
+    }
+    if (windows.length > 1) {
+        notes.push(`Your environments were scanned over different history windows (${windows.sort((a, b) => a - b).map(d => d + 'd').join(', ')}), ` +
+            `so only the overlap can be compared fairly. Rescan them with the same window for a longer comparable history.`);
+    }
+    if (t.incompleteCount) {
+        notes.push(`${t.incompleteCount} ${unit}${t.incompleteCount === 1 ? '' : 's'} ` +
+            `${t.incompleteCount === 1 ? 'is' : 'are'} only partly covered by the scan window — shown for context but excluded from the statistics, ` +
+            `since a partial ${unit} would otherwise look like a real drop.`);
+    }
+    $('trend-coverage').innerHTML = notes.length
+        ? `<div class="callout callout-info">${notes.join('<br>')}</div>` : '';
+
+    /* Headline stats */
+    const dirLabel: Record<string, string> = { rising: 'Rising', falling: 'Falling', flat: 'Broadly flat' };
+    const changeTxt = t.changeAcross === null ? '—'
+        : (t.changeAcross >= 0 ? '+' : '') + fmt(t.changeAcross, 0) + '%';
+    const dp = metric === 'runs' ? 0 : 1;
+    const cards: [string, string][] = [
+        [`Complete ${unit}s`, fmt(t.completeCount)],
+        [`Average per ${unit}`, fmt(t.mean, dp)],
+        [`Typical (median)`, fmt(t.median, dp)],
+        [`Busiest ${unit}`, t.peak ? `${t.peak.period}` : '—'],
+        ['Direction', dirLabel[t.direction] + (t.changeAcross !== null ? ` ${changeTxt}` : '')]
+    ];
+    $('trend-headline').innerHTML = cards
+        .map(([l, v]) => `<div class="stat"><span class="stat-value">${esc(v)}</span><span class="stat-label">${esc(l)}</span></div>`)
+        .join('');
+
+    $('trend-chart').innerHTML = trendChart(t.periods, metric);
+
+    /* Plain-language callouts */
+    const out: string[] = [];
+    if (!t.enough) {
+        out.push(`<p class="hint">Only ${t.completeCount} fully covered ${unit}${t.completeCount === 1 ? '' : 's'} ` +
+            `— not enough to say which periods are unusual. Scan a longer history window to build a trend.</p>`);
+    } else {
+        if (t.spikes.length) {
+            const items = t.spikes.map(p => {
+                const v = metricValue(p, metric);
+                const vs = t.median > 0 ? ` — about ${fmt(v / t.median, 1)}x the typical ${unit}` : '';
+                return `<li><strong>${esc(p.period)}</strong>: ${esc(fmt(v, dp))} ${esc(METRIC_LABEL[metric].toLowerCase())}${esc(vs)}</li>`;
+            }).join('');
+            out.push(`<h3>Spikes</h3><p class="hint">${unit.charAt(0).toUpperCase() + unit.slice(1)}s well above your typical level. ` +
+                `Worth checking what ran then — the <em>By tool</em> tab shows which tools consume most.</p><ul class="callout-list">${items}</ul>`);
+        }
+        if (t.dips.length) {
+            const items = t.dips.map(p =>
+                `<li><strong>${esc(p.period)}</strong>: ${esc(fmt(metricValue(p, metric), dp))}</li>`).join('');
+            out.push(`<h3>Quiet periods</h3><ul class="callout-list">${items}</ul>`);
+        }
+        if (!t.spikes.length && !t.dips.length) {
+            out.push(`<p class="hint">No unusual ${unit}s — consumption is fairly steady across the comparable period.</p>`);
+        }
+        if (t.direction === 'rising') {
+            out.push(`<p class="warn">Consumption is trending upwards (${esc(changeTxt)} comparing the later ${unit}s with the earlier ones). ` +
+                `Budget on the recent level rather than the average.</p>`);
+        }
+    }
+    $('trend-callouts').innerHTML = out.join('');
+
+    /* Table */
+    const rows = t.periods.map(p => {
+        const change = p.changePct === null ? '—'
+            : `<span class="${p.changePct >= 0 ? 'up' : 'down'}">${p.changePct >= 0 ? '+' : ''}${fmt(p.changePct, 0)}%</span>`;
+        const note = !p.complete ? '<span class="conf conf-none">partial</span>'
+            : p.flag === 'spike' ? '<span class="conf conf-low">unusually high</span>'
+            : p.flag === 'dip' ? '<span class="conf conf-medium">unusually low</span>' : '';
+        return `<tr class="${p.complete ? '' : 'muted-row'}"><td>${esc(p.period)}</td>` +
+            `<td class="num">${fmt(p.runs)}</td>` +
+            `<td class="num">${fmt(p.credits)}</td>` +
+            `<td class="num">${fmt(p.cc, 1)}</td>` +
+            `<td class="num">$${fmt(p.cc * CC_USD, 2)}</td>` +
+            `<td class="num">${change}</td><td>${note}</td></tr>`;
+    }).join('');
+
+    $('trend-table').innerHTML =
+        `<h3>By ${unit}</h3><div class="tblwrap"><table><thead><tr>` +
+        `<th>${unit === 'quarter' ? 'Quarter' : 'Month'}</th><th class="num">Runs</th>` +
+        `<th class="num">AI Builder credits</th><th class="num">Copilot Credits (est.)</th>` +
+        `<th class="num">Est. cost</th><th class="num">Change</th><th></th>` +
+        `</tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 
 function renderTools(list: EnvAggregate[]) {
@@ -548,6 +736,7 @@ function renderAll() {
 
     renderCoverage(list);
     renderSummary(list);
+    renderTrends(list);
     renderTools(list);
     renderEvents();
 }
@@ -626,7 +815,7 @@ function wireTabs() {
         tab.addEventListener('click', () => {
             const name = (tab as HTMLElement).dataset.tab;
             document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t === tab));
-            ['summary', 'tools', 'events'].forEach(p =>
+            ['summary', 'trends', 'tools', 'events'].forEach(p =>
                 $('panel-' + p).classList.toggle('hide', p !== name));
         }));
 }
@@ -679,6 +868,8 @@ async function initialize() {
     $('export-csv-btn').addEventListener('click', () => exportRows('csv'));
     $('tool-filter').addEventListener('input', () => renderTools(Object.values(scans)));
     $('event-filter').addEventListener('input', renderEvents);
+    $('granularity').addEventListener('change', () => renderTrends(Object.values(scans)));
+    $('trend-metric').addEventListener('change', () => renderTrends(Object.values(scans)));
     $('clear-btn').addEventListener('click', async () => {
         scans = {};
         sessionRows = {};

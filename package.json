@@ -1,6 +1,6 @@
 {
     "name": "pptb-ai-builder-credit-analyzer",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "displayName": "AI Builder Credit Analyzer",
     "description": "Scan AI Builder activity in Dataverse and estimate the equivalent consumption in Copilot Credits, with a per-tool breakdown and a tenant-wide roll-up.",
     "main": "index.html",

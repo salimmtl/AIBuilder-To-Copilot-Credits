@@ -14,7 +14,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { buildRow, summarize, CC_USD } from '../src/credit-engine.js';
+import { buildRow, summarize, CC_USD, monthToQuarter, bucketPeriods, analyzeTrend } from '../src/credit-engine.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const raw = JSON.parse(readFileSync(join(here, 'fixture.json'), 'utf8'));
@@ -113,6 +113,95 @@ check('byTool captures language model', s.byTool.some(t => t.models.some(m => /g
 const confRuns = s.byConfidence.reduce((n, c) => n + c.runs, 0);
 check('byConfidence runs reconcile', confRuns, s.runs);
 check('months present', s.byMonth.length > 1, true);
+
+/* ---------------------------------------------------------------- trends -- */
+
+check('month to quarter Q1', monthToQuarter('2026-02'), '2026-Q1');
+check('month to quarter Q4', monthToQuarter('2026-12'), '2026-Q4');
+
+/* Quarterly buckets must preserve the totals exactly, not resample them. */
+const quarters = bucketPeriods(s.byMonth, 'quarter');
+const qCredits = quarters.reduce((n, p) => n + p.credits, 0);
+const qRuns = quarters.reduce((n, p) => n + p.runs, 0);
+check('quarterly credits reconcile', qCredits, s.credits);
+check('quarterly runs reconcile', qRuns, s.runs);
+check('quarters ordered', quarters.every((p, i, a) => i === 0 || a[i - 1].period <= p.period), true);
+
+const months = bucketPeriods(s.byMonth, 'month');
+check('monthly credits reconcile', months.reduce((n, p) => n + p.credits, 0), s.credits);
+check('fewer quarters than months', quarters.length < months.length, true);
+
+/* Coverage: periods outside the scanned window must be marked incomplete so a
+   partial first or last month is never read as a real drop in consumption. */
+const covered = bucketPeriods(s.byMonth, 'month', {
+  start: new Date(2026, 1, 1),   // 1 Feb
+  end:   new Date(2026, 4, 0, 23, 59, 59) // 30 Apr
+});
+check('january marked incomplete', covered.find(p => p.period === '2026-01')?.complete, false);
+check('march marked complete', covered.find(p => p.period === '2026-03')?.complete, true);
+
+/* Spike detection on a deliberately constructed series. */
+const series = [
+  { period: '2026-01', runs: 10, credits: 100, cc: 10, complete: true },
+  { period: '2026-02', runs: 10, credits: 100, cc: 11, complete: true },
+  { period: '2026-03', runs: 10, credits: 100, cc: 9,  complete: true },
+  { period: '2026-04', runs: 10, credits: 100, cc: 60, complete: true },  // spike
+  { period: '2026-05', runs: 10, credits: 100, cc: 10, complete: true },
+  { period: '2026-06', runs: 10, credits: 100, cc: 10, complete: false }  // partial
+];
+const t = analyzeTrend(series);
+check('spike detected', t.spikes.length, 1);
+check('spike is the right period', t.spikes[0]?.period, '2026-04');
+check('partial period never flagged', t.periods.find(p => p.period === '2026-06')?.flag, null);
+check('complete periods counted', t.completeCount, 5);
+check('incomplete periods counted', t.incompleteCount, 1);
+check('change vs previous computed', Math.round(t.periods[3].changePct), 567);
+
+/* A flat series must not manufacture spikes. */
+const flat = Array.from({ length: 6 }, (_, i) => (
+  { period: `2026-0${i + 1}`, runs: 5, credits: 50, cc: 20, complete: true }
+));
+check('flat series has no spikes', analyzeTrend(flat).spikes.length, 0);
+check('flat series direction', analyzeTrend(flat).direction, 'flat');
+
+/* Too few complete periods to make a claim about what is unusual. */
+const short = [
+  { period: '2026-01', runs: 1, credits: 10, cc: 1, complete: true },
+  { period: '2026-02', runs: 1, credits: 10, cc: 90, complete: true }
+];
+check('short series makes no claim', analyzeTrend(short).enough, false);
+check('short series flags nothing', analyzeTrend(short).spikes.length, 0);
+
+/* Growth should be reported as rising. */
+const rising = [10, 12, 14, 30, 34, 38].map((v, i) => (
+  { period: `2026-0${i + 1}`, runs: 5, credits: v * 10, cc: v, complete: true }
+));
+check('rising series direction', analyzeTrend(rising).direction, 'rising');
+
+/* A flat series with one big spike must NOT be reported as growth: the spike is
+   called out separately, and the direction should describe the underlying level. */
+const flatWithSpike = [20, 21, 19, 20, 22, 300, 20, 21].map((v, i) => (
+  { period: `2026-0${i + 1}`, runs: 5, credits: v * 10, cc: v, complete: true }
+));
+const fws = analyzeTrend(flatWithSpike);
+check('spike does not fake a trend', fws.direction, 'flat');
+check('spike still reported', fws.spikes.length, 1);
+check('minor variation not flagged', fws.dips.length, 0);
+check('spike-driven change stays small', Math.abs(Math.round(fws.changeAcross)) <= 15, true);
+
+/* Small absolute wobble on a steady series must stay quiet even though the MAD
+   is tiny: statistically distinct is not the same as worth reporting. */
+const steady = [100, 101, 99, 100, 102, 98, 100, 107].map((v, i) => (
+  { period: `2026-0${i + 1}`, runs: 5, credits: v, cc: v, complete: true }
+));
+const st = analyzeTrend(steady);
+check('steady series flags nothing', st.spikes.length + st.dips.length, 0);
+
+/* But a genuine doubling on that same steady series must still be caught. */
+const steadyThenReal = [100, 101, 99, 100, 102, 98, 100, 260].map((v, i) => (
+  { period: `2026-0${i + 1}`, runs: 5, credits: v, cc: v, complete: true }
+));
+check('real spike still caught', analyzeTrend(steadyThenReal).spikes.length, 1);
 
 console.log('\n' + (ok
   ? 'Engine output matches the expected classification and conversion.'

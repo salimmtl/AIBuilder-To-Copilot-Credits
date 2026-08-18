@@ -54,6 +54,11 @@ There is nothing else to install, no app registration to create, and no consent 
 The scan reads your AI Builder history and shows the results below. Large environments take
 longer, and progress is shown as it goes.
 
+> **For trends, scan a long window.** The **Trends** tab needs several complete months before it
+> can say anything useful about spikes or direction. 180 days or more gives you something to
+> work with; 365 days is better. If you are comparing several environments, scan them all with
+> the **same** window.
+
 ### Do this for every environment
 
 **Power Platform ToolBox connects to one environment at a time.** A scan only covers the
@@ -72,7 +77,7 @@ Scanning the same environment again simply replaces its earlier result.
 
 ## What you get
 
-Results appear in three tabs.
+Results appear in four tabs.
 
 ### Summary
 
@@ -86,10 +91,38 @@ The headline numbers:
 | **Estimated cost** | Those Copilot Credits priced in US dollars |
 | **Identified** | The share of runs the tool could match to a capability |
 
-Below that you get a breakdown **by environment**, **by capability** (which kind of AI Builder
-work is driving the cost) and **by month** (whether usage is growing, and how uneven it is).
+Below that you get a breakdown **by environment** and **by capability** (which kind of AI
+Builder work is driving the cost).
 
 There is also a **classification confidence** table, explained below.
+
+### Trends
+
+How consumption moves over time, grouped by **month** or **quarter**, measured in Copilot
+Credits, AI Builder credits or runs.
+
+- A chart of every period, with unusually high periods in red and unusually low ones in amber.
+- Headline figures: the average and typical (median) period, the busiest one, and whether
+  consumption is rising, falling or broadly flat.
+- **Spikes** called out in plain language — for example *"2026-05: about 5.4x the typical
+  month"*. When you find one, the **By tool** tab will usually tell you what caused it.
+- A table of every period with its change against the previous one.
+
+Two things this tab is deliberately careful about:
+
+**Partial periods are never treated as real drops.** If your scan window starts mid-month, or
+the current month is still running, that period is only partly covered. It is shown greyed out
+for context but left out of all the statistics — otherwise it would look like consumption had
+collapsed.
+
+**Environments scanned over different windows are only compared where they overlap.** If one
+environment is scanned over 90 days and another over a year, the early months contain just one
+environment and would show a fake ramp-up. The tab tells you the comparable period, and suggests
+rescanning with matching windows if you want a longer history.
+
+"Unusual" also needs enough history to mean anything. With only two or three complete periods
+the tool says so rather than guessing. A period must be both statistically distinct *and*
+meaningfully different in size before it is flagged, so small wobbles on steady usage stay quiet.
 
 ### By tool
 

@@ -74,6 +74,7 @@
 
             <div class="tabs" role="tablist">
                 <button class="tab active" data-tab="summary" role="tab">Summary</button>
+                <button class="tab" data-tab="trends" role="tab">Trends</button>
                 <button class="tab" data-tab="tools" role="tab">By tool</button>
                 <button class="tab" data-tab="events" role="tab">Events</button>
             </div>
@@ -83,7 +84,35 @@
                 <div id="confidence"></div>
                 <div id="by-environment"></div>
                 <div id="rollup-by-capability"></div>
-                <div id="by-month"></div>
+            </div>
+
+            <div id="panel-trends" class="panel hide">
+                <p class="hint">
+                    How Copilot Credit consumption moves over time, and which periods stand out.
+                    Only periods your scans fully cover are used for the statistics.
+                </p>
+                <div class="controls trend-controls">
+                    <div class="input-group">
+                        <label for="granularity">Group by</label>
+                        <select id="granularity">
+                            <option value="month" selected>Month</option>
+                            <option value="quarter">Quarter</option>
+                        </select>
+                    </div>
+                    <div class="input-group">
+                        <label for="trend-metric">Measure</label>
+                        <select id="trend-metric">
+                            <option value="cc" selected>Copilot Credits (est.)</option>
+                            <option value="credits">AI Builder credits</option>
+                            <option value="runs">Runs</option>
+                        </select>
+                    </div>
+                </div>
+                <div id="trend-coverage"></div>
+                <div id="trend-headline" class="totals"></div>
+                <div id="trend-chart"></div>
+                <div id="trend-callouts"></div>
+                <div id="trend-table"></div>
             </div>
 
             <div id="panel-tools" class="panel hide">

@@ -193,3 +193,47 @@ tbody tr:last-child td { border-bottom: none; }
 
 .loading { color: var(--muted); }
 .hide { display: none; }
+
+/* ---------------------------------------------------------------- trends */
+
+.trend-controls { margin-top: 0; margin-bottom: 12px; }
+
+.chartwrap {
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--bg);
+    padding: 8px;
+    margin-bottom: 8px;
+}
+.chartwrap svg { display: block; width: 100%; height: auto; }
+
+.grid { stroke: var(--line); stroke-width: 1; }
+.axisline { stroke: var(--muted); stroke-width: 1; }
+.axis { fill: var(--muted); font-size: 11px; font-family: inherit; }
+
+.bar { fill: var(--accent); }
+.bar-spike { fill: var(--err-fg); }
+.bar-dip { fill: var(--warn-fg); }
+.bar-partial { fill: var(--muted); opacity: .38; }
+
+.legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px;
+    font-size: 12px;
+    color: var(--muted);
+    margin-bottom: 8px;
+}
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.swatch { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+.swatch.bar { background: var(--accent); }
+.swatch.bar-spike { background: var(--err-fg); }
+.swatch.bar-dip { background: var(--warn-fg); }
+.swatch.bar-partial { background: var(--muted); opacity: .38; }
+
+.callout-list { margin: 6px 0 12px; padding-left: 20px; }
+.callout-list li { margin-bottom: 3px; }
+
+.up { color: var(--err-fg); }
+.down { color: var(--ok-fg); }
+tr.muted-row td { color: var(--muted); }
