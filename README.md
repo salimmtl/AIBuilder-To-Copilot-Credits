@@ -14,8 +14,8 @@
 ## What this is for
 
 AI Builder usage is moving to Copilot Credits. The exchange rate is **not** one number — it
-depends on which AI Builder capability each run used, and the rates differ by as much as
-**20x** between capabilities.
+depends on which AI Builder capability each run used, and the published rates differ by a factor
+of **thirty** between the cheapest and dearest conversion.
 
 So you cannot work this out from a single credit total. You need to know *what kind of work*
 your AI Builder runs were doing. This tool reads that detail straight out of Dataverse and does
